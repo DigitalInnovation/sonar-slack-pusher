@@ -214,7 +214,7 @@ public class SonarSlackPusher extends Notifier {
    }
 
    private String getSonarData() throws Exception {
-      String path = "/api/resources?metrics=alert_status,quality_gate_details&includealerts=true";
+      String path = "/api/resources?metrics=alert_status,quality_gate_details,new_major_violations,new_critical_violations,new_minor_violations&includealerts=true&includetrends=true";
       CloseableHttpClient client = HttpClientBuilder.create().build();
       HttpGet get = new HttpGet(sonarUrl + path);
 
@@ -244,6 +244,7 @@ public class SonarSlackPusher extends Notifier {
    private void getAllNotifications(String data) {
       JSONParser jsonParser = new JSONParser();
       JSONArray jobs = null;
+      attachment = new Attachment();
       try {
          jobs = (JSONArray) jsonParser.parse(data);
       } catch (ParseException pe) {
@@ -267,19 +268,31 @@ public class SonarSlackPusher extends Notifier {
                   if (((JSONObject) msr).get("alert") != null) {
                      String alert = ((JSONObject) msr).get("alert").toString();
                      if (alert.equalsIgnoreCase("ERROR") || alert.equalsIgnoreCase("WARN")) {
-                        attachment = new Attachment();
                         attachment.setAlert(alert);
                         attachment.setAlertText(((JSONObject) msr).get("alert_text").toString());
                      }
                   }
                }
+               if (((JSONObject) msr).get("key").equals("new_major_violations") && !(((JSONObject) msr).get("fvar1").toString()).equals("0")) {
+                   String majorText = ((JSONObject) msr).get("fvar1").toString();
+                      attachment.setMajorViolation("Major Violation added:"+majorText);
+                }
+               if (((JSONObject) msr).get("key").equals("new_minor_violations") && !(((JSONObject) msr).get("fvar1").toString()).equals("0")) {
+                   String minorText = ((JSONObject) msr).get("fvar1").toString();
+                      attachment.setMinorViolation("Minor Violation added:"+minorText);
+                }
+               if (((JSONObject) msr).get("key").equals("new_critical_violations") && !(((JSONObject) msr).get("fvar1").toString()).equals("0")) {
+                   String criticalText = ((JSONObject) msr).get("fvar1").toString();
+                      attachment.setCriticalViolation("Critical Violation added:"+criticalText);
+                }
             }
          }
       }
    }
 
    private void pushNotification() {
-      if (attachment == null) {
+      if (null == attachment.getAlertText() && null == attachment.getNewCriticalViolation() && 
+    		  null == attachment.getNewMajorViolation() && null == attachment.getNewMinorViolation()) {
          String msg = "[ssp] No failed quality checks found for project '" + jobName;
 
          if (resolvedBranchName != null) {
@@ -287,7 +300,12 @@ public class SonarSlackPusher extends Notifier {
          }
          msg += "' nothing to report to the Slack channel.";
          logger.println(msg);
-         return;
+         attachment.setAlert("GREEN");
+         attachment.setAlertText("No Issues found");
+         //return;
+      } else if (null == attachment.getAlertText()) {
+    	  attachment.setAlert("ERROR");
+          attachment.setAlertText("Issues found");
       }
       String linkUrl = null;
       try {
